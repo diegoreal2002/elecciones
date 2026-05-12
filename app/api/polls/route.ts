@@ -5,8 +5,8 @@ import { NextResponse } from 'next/server';
 // Initialize DB on first run
 initDB();
 
-export async function GET(request: Request) {
-  return new Promise((resolve) => {
+export async function GET(request: Request): Promise<NextResponse> {
+  return new Promise<NextResponse>((resolve) => {
     const db = getDB();
     db.all(`
       SELECT p.*,
@@ -52,7 +52,7 @@ export async function GET(request: Request) {
   });
 }
 
-export async function POST(request: Request) {
+export async function POST(request: Request): Promise<NextResponse> {
   const body = await request.json();
   const { question, options } = body;
 
@@ -60,7 +60,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'Invalid poll data' }, { status: 400 });
   }
 
-  return new Promise((resolve) => {
+  return new Promise<NextResponse>((resolve) => {
     const db = getDB();
     db.run('INSERT INTO polls (question) VALUES (?)', [question], function(err) {
       if (err) {

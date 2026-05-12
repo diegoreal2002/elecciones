@@ -1,10 +1,10 @@
 import { getDB } from '@/lib/db';
 import { NextResponse } from 'next/server';
 
-export async function GET(request: Request, { params }: { params: Promise<{ id: string }> }) {
+export async function GET(request: Request, { params }: { params: Promise<{ id: string }> }): Promise<NextResponse> {
   const { id: pollId } = await params;
 
-  return new Promise((resolve) => {
+  return new Promise<NextResponse>((resolve) => {
     const db = getDB();
     db.all(`
       SELECT

@@ -2,7 +2,7 @@ import { getDB } from '@/lib/db';
 import { getClientIP, generateVoterHash, generateDeviceFingerprint } from '@/lib/auth';
 import { NextResponse } from 'next/server';
 
-export async function POST(request: Request) {
+export async function POST(request: Request): Promise<NextResponse> {
   const body = await request.json();
   const { pollId, optionId, deviceFingerprint } = body;
 
@@ -14,7 +14,7 @@ export async function POST(request: Request) {
   const userAgent = request.headers.get('user-agent') || 'unknown';
   const voterHash = generateVoterHash(ip, deviceFingerprint);
 
-  return new Promise((resolve) => {
+  return new Promise<NextResponse>((resolve) => {
     const db = getDB();
 
     db.get('SELECT id FROM votes WHERE voter_hash = ? AND poll_id = ?',
