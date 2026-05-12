@@ -2,54 +2,61 @@ import { initDB, getDB } from '@/lib/db';
 import { candidatesWithImages } from '@/app/config/candidates';
 import { NextResponse } from 'next/server';
 
-// Initialize DB on first run
-initDB();
-
 export async function GET(request: Request): Promise<NextResponse> {
-  return new Promise<NextResponse>((resolve) => {
+  try {
+    await initDB();
     const db = getDB();
-    db.all(`
-      SELECT p.*,
-        (
-          SELECT json_group_array(
-            json_object('id', o.id, 'text', o.text, 'image_url', o.image_url)
-          )
-          FROM (
-            SELECT *
+
+    const pollsResult = await db.execute(`
+      SELECT id, question, created_at
+      FROM polls
+      ORDER BY created_at DESC
+    `);
+
+    const candidateOrder = new Map(
+      candidatesWithImages.map((candidate, index) => [candidate.name.toUpperCase(), index])
+    );
+
+    const parsedPolls = await Promise.all(
+      pollsResult.rows.map(async (poll: any) => {
+        const optionsResult = await db.execute({
+          sql: `
+            SELECT id, text, image_url
             FROM options
-            WHERE poll_id = p.id
-            ORDER BY id asc
-          ) o
-        ) as options
-      FROM polls p
-      GROUP BY p.id
-      ORDER BY p.created_at DESC
-    `, (err, polls) => {
-      db.close();
-      if (err) {
-        resolve(NextResponse.json({ error: err.message }, { status: 500 }));
-      } else {
-        const candidateOrder = new Map(
-          candidatesWithImages.map((candidate, index) => [candidate.name.toUpperCase(), index])
-        );
+            WHERE poll_id = ?
+            ORDER BY id ASC
+          `,
+          args: [poll.id]
+        });
 
-        const parsedPolls = polls.map((p: any) => ({
-          ...p,
-          options: JSON.parse(p.options || '[]').sort((a: any, b: any) => {
-            const aOrder = candidateOrder.get((a.text || '').toUpperCase()) ?? Number.MAX_SAFE_INTEGER;
-            const bOrder = candidateOrder.get((b.text || '').toUpperCase()) ?? Number.MAX_SAFE_INTEGER;
+        const options = optionsResult.rows.map((option: any) => ({
+          id: Number(option.id),
+          text: String(option.text),
+          image_url: option.image_url ? String(option.image_url) : null
+        })).sort((a: any, b: any) => {
+          const aOrder = candidateOrder.get((a.text || '').toUpperCase()) ?? Number.MAX_SAFE_INTEGER;
+          const bOrder = candidateOrder.get((b.text || '').toUpperCase()) ?? Number.MAX_SAFE_INTEGER;
 
-            if (aOrder === bOrder) {
-              return a.id - b.id;
-            }
+          if (aOrder === bOrder) {
+            return a.id - b.id;
+          }
 
-            return aOrder - bOrder;
-          })
-        }));
-        resolve(NextResponse.json(parsedPolls));
-      }
-    });
-  });
+          return aOrder - bOrder;
+        });
+
+        return {
+          id: Number(poll.id),
+          question: String(poll.question),
+          created_at: String(poll.created_at),
+          options
+        };
+      })
+    );
+
+    return NextResponse.json(parsedPolls);
+  } catch (err: any) {
+    return NextResponse.json({ error: err?.message || 'Database error' }, { status: 500 });
+  }
 }
 
 export async function POST(request: Request): Promise<NextResponse> {
@@ -60,30 +67,25 @@ export async function POST(request: Request): Promise<NextResponse> {
     return NextResponse.json({ error: 'Invalid poll data' }, { status: 400 });
   }
 
-  return new Promise<NextResponse>((resolve) => {
+  try {
+    await initDB();
     const db = getDB();
-    db.run('INSERT INTO polls (question) VALUES (?)', [question], function(err) {
-      if (err) {
-        db.close();
-        resolve(NextResponse.json({ error: err.message }, { status: 500 }));
-        return;
-      }
 
-      const pollId = this.lastID;
-      let completed = 0;
-
-      options.forEach((option: string) => {
-        db.run('INSERT INTO options (poll_id, text) VALUES (?, ?)',
-          [pollId, option],
-          (err) => {
-            completed++;
-            if (completed === options.length) {
-              db.close();
-              resolve(NextResponse.json({ id: pollId }));
-            }
-          }
-        );
-      });
+    const insertPoll = await db.execute({
+      sql: 'INSERT INTO polls (question) VALUES (?)',
+      args: [question]
     });
-  });
+
+    const pollId = Number(insertPoll.lastInsertRowid ?? 0);
+    for (const option of options as string[]) {
+      await db.execute({
+        sql: 'INSERT INTO options (poll_id, text) VALUES (?, ?)',
+        args: [pollId, option]
+      });
+    }
+
+    return NextResponse.json({ id: pollId });
+  } catch (err: any) {
+    return NextResponse.json({ error: err?.message || 'Database error' }, { status: 500 });
+  }
 }
